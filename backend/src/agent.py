@@ -85,10 +85,9 @@ async def my_agent(ctx: JobContext):
             smart_format=False,
             punctuate=False,
         ),
-        # LLM: Gemini 1.5 Flash — proven stable model name format
-        llm=google.LLM(
-            model="models/gemini-3.5-flash",
-            temperature=0.7,
+        # LLM: LiveKit Inference fallback for reliability
+        llm=inference.LLM(
+            model="google/gemini-2.5-flash-lite"
         ),
         # TTS: Murf with aggressive streaming — synthesize chunk-by-chunk
         tts=murf.TTS(
@@ -150,14 +149,14 @@ async def my_agent(ctx: JobContext):
     @session.on("user_input_transcribed")
     def on_user_transcribed(transcript):
         _pipeline_t0["stt_end"] = time.perf_counter()
-        logger.info(f"[DIAG-STT] User speech transcribed: '{transcript}'")
+        logger.info(f"[DIAG-PIPELINE] 1. User speech received/transcribed: '{transcript}'")
 
     @session.on("user_state_changed")
     def on_user_state(evt):
         if evt.new_state == "speaking":
-            logger.info("🎤 USER STARTED SPEAKING - STT IS WORKING!")
+            logger.info("[DIAG-PIPELINE] 🎤 USER STARTED SPEAKING - STT IS WORKING!")
         elif evt.new_state == "listening":
-            logger.info("🛑 USER STOPPED SPEAKING - PROCESSING LLM...")
+            logger.info("[DIAG-PIPELINE] 🛑 USER STOPPED SPEAKING")
 
     @session.on("agent_state_changed")
     def on_agent_state(evt):
@@ -165,30 +164,37 @@ async def my_agent(ctx: JobContext):
             if _silence_state["task"] and not _silence_state["task"].done():
                 _silence_state["task"].cancel()
 
-        t_stt = _pipeline_t0.get("stt_end")
-        latency_msg = ""
-        if t_stt and evt.new_state == "speaking":
-            latency_msg = f" | time-since-STT={time.perf_counter() - t_stt:.3f}s"
-        logger.info(f"[DIAG-STATE] Agent state → {evt.new_state}{latency_msg}")
+        state = evt.new_state
+        if state == "thinking":
+            logger.info("[DIAG-PIPELINE] 2. LLM request started (agent state -> thinking)")
+        elif state == "speaking":
+            logger.info("[DIAG-PIPELINE] 7. TTS playback started (agent state -> speaking)")
 
     @session.on("error")
     def on_error(err: Exception):
-        logger.error(f"[DIAG-ERROR] Pipeline error: {err}", exc_info=err)
+        logger.error(f"[DIAG-ERROR] Pipeline error caught: {str(err)}", exc_info=err)
 
     @session.on("llm_error")
     def on_llm_error(err: Exception):
-        logger.error(f"[DIAG-LLM-ERROR] LLM failed or timed out: {err}", exc_info=err)
+        logger.error(f"[DIAG-PIPELINE-ERROR] 8. LLM failed or timed out. Exception: {str(err)}", exc_info=err)
+        import asyncio
+        asyncio.create_task(session.say("I am having a temporary connection issue. Please give me a moment.", allow_interruptions=True))
 
     @session.on("tts_error")
     def on_tts_error(err: Exception):
-        logger.error(f"[DIAG-TTS-ERROR] TTS failed or timed out: {err}", exc_info=err)
+        logger.error(f"[DIAG-PIPELINE-ERROR] 8. TTS failed or timed out. Exception: {str(err)}", exc_info=err)
+        import asyncio
+        asyncio.create_task(session.say("I'm sorry, my voice engine encountered an error.", allow_interruptions=True))
 
     @session.on("metrics_collected")
     def on_metrics(metrics):
-        logger.info(f"[DIAG-METRICS] {metrics}")
+        try:
+            # Metrics logged to catch chunks and TTS generation events
+            logger.info(f"[DIAG-PIPELINE] 3/4/5/6. Metrics collected: {metrics}")
+        except Exception as e:
+            logger.error(f"[DIAG-PIPELINE-ERROR] Error parsing metrics: {e}")
 
     # Raw VAD hook — fires even before STT processes audio
-    # This tells us if the microphone data is physically reaching the agent
     vad_instance = ctx.proc.userdata.get("vad")
     if vad_instance:
         @vad_instance.on("start_of_speech")
