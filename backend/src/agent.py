@@ -13,6 +13,7 @@ from livekit.agents import (
     inference,
     tokenize,
     room_io,
+    UserInputTranscribedEvent,
 )
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -22,20 +23,8 @@ logger.setLevel(logging.DEBUG)
 
 load_dotenv(".env.local")
 
-# Change this prompt to change what your voice agent does.
-# See README.md for example prompts (customer support, language tutor, receptionist).
-SYSTEM_PROMPT = """You are 'Arthashathi', an expert Indian financial literacy, banking, and government scheme assistant. 
-
-Your core responsibilities are:
-1. Government Scheme Explainer: Clearly and simply explain key Indian government financial schemes (e.g., PM Jan Dhan Yojana, PM Mudra Yojana, Sukanya Samriddhi Yojana, Atal Pension Yojana), including eligibility criteria, benefits, and the application process.
-2. Banking Literacy: Teach fundamental banking concepts, safe digital banking (UPI, Netbanking), types of bank accounts, and loans in easy-to-understand terms.
-3. Fraud Awareness & Cyber Security: Actively educate users on how to protect themselves from financial frauds, cyber scams, fake OTP calls, phishing links, and investment scams. Advise them to use the national cybercrime helpline 1930 for reporting.
-
-Guidelines for interaction:
-- Keep your answers highly concise, structured, and conversational (this is a voice-based AI).
-- Use a warm, trustworthy, and authoritative yet empathetic tone.
-- Avoid heavy financial jargon; explain things simply so that anyone from any background can understand.
-- If a user asks about non-financial topics, politely guide them back to banking, schemes, or financial safety."""
+# System prompt is maintained in prompt.py for cleaner separation
+from prompt import SYSTEM_PROMPT
 
 
 class Assistant(Agent):
@@ -88,38 +77,70 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # STT: Deepgram Nova-2 — broad compatibility, proven stable
         stt=deepgram.STT(
-            model="nova-2",
+            model="nova-3",
+            language="multi",
             interim_results=True,
             no_delay=True,
-            endpointing_ms=25,
+            endpointing_ms=500,
             smart_format=False,
             punctuate=False,
         ),
         # LLM: Gemini 1.5 Flash — proven stable model name format
         llm=google.LLM(
-            model="models/gemini-flash-latest",
+            model="models/gemini-3.5-flash",
             temperature=0.7,
         ),
         # TTS: Murf with aggressive streaming — synthesize chunk-by-chunk
         tts=murf.TTS(
-            voice="en-IN-pooja",
+            voice="hi-IN-anisha",
             style="Conversation",
-            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=1),
-            text_pacing=False,
-            streaming=True,
-            min_buffer_size=1,
+            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
+            text_pacing=True
         ),
-        # Turn detection
-        turn_detection=MultilingualModel(),
+        # turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
-        # Preemptive generation: start generating while user is still finishing
-        preemptive_generation=True,
+        preemptive_generation=False,
         # Reduced endpointing delays for faster response initiation
         min_endpointing_delay=0.3,
         max_endpointing_delay=1.5,
         # Interruption settings
-        min_interruption_duration=0.4,
-    )
+        min_interruption_duration=0.7,
+        # pyrefly: ignore [parse-error]
+        )
+
+    import asyncio
+
+    _silence_state = {"task": None, "reprompt_count": 0}
+
+    async def _silence_watchdog():
+        try:
+            await asyncio.sleep(15)
+            _silence_state["reprompt_count"] += 1
+            if _silence_state["reprompt_count"] == 1:
+                await session.generate_reply(
+                    instructions="The user has gone quiet. Gently check in and ask if they have a question, in the same language they were using earlier in this conversation. Keep it under 10 words."
+                )
+                _silence_state["task"] = asyncio.create_task(_silence_watchdog())
+            else:
+                await session.generate_reply(
+                    instructions="The user has stayed silent. Politely close the conversation, in the same language they were using earlier, telling them to call back when they have time. Keep it under 15 words."
+                )
+        except asyncio.CancelledError:
+            pass
+
+    def _reset_silence_timer():
+        if _silence_state["task"] and not _silence_state["task"].done():
+            _silence_state["task"].cancel()
+        _silence_state["reprompt_count"] = 0
+        _silence_state["task"] = asyncio.create_task(_silence_watchdog())
+
+    @session.on("user_state_changed")
+    def on_user_state_silence(evt):
+        if evt.new_state == "listening":
+            _reset_silence_timer()
+        elif evt.new_state == "speaking":
+            if _silence_state["task"] and not _silence_state["task"].done():
+                _silence_state["task"].cancel()
 
     # -------------------------------------------------------------------------
     # Deep diagnostic logging — pipeline stage event hooks
@@ -140,6 +161,10 @@ async def my_agent(ctx: JobContext):
 
     @session.on("agent_state_changed")
     def on_agent_state(evt):
+        if evt.new_state in ("thinking", "speaking"):
+            if _silence_state["task"] and not _silence_state["task"].done():
+                _silence_state["task"].cancel()
+
         t_stt = _pipeline_t0.get("stt_end")
         latency_msg = ""
         if t_stt and evt.new_state == "speaking":
