@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Optional
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -112,6 +113,155 @@ class Assistant(Agent):
         except Exception as e:
             logger.error(f"[DIAG-TOOL-ERROR] remember_caller failed: {e}", exc_info=True)
             return "Error saving caller data, but you can ignore this and continue."
+
+    @function_tool
+    async def check_scheme_eligibility(
+        self, 
+        context: RunContext, 
+        scheme_name: str,
+        annual_income: Optional[int] = None,
+        owns_pucca_house: Optional[bool] = None,
+        age: Optional[int] = None,
+        is_farmer: Optional[bool] = None,
+        has_bank_account: Optional[bool] = None,
+        is_bpl_or_poor: Optional[bool] = None,
+        has_existing_lpg_connection: Optional[bool] = None,
+        applicant_is_female: Optional[bool] = None,
+        is_indian_citizen: Optional[bool] = None
+    ) -> str:
+        """Call this whenever the user asks if they qualify/are eligible for a specific
+        government scheme, after collecting the relevant details from them in conversation
+        first — do not call with guessed or missing critical values, ask the user first
+        if you don't have enough information.
+        
+        Args:
+            scheme_name: Internal name of the scheme (e.g. 'pm_awas_yojana', 'pm_vaya_vandana_yojana', etc)
+            annual_income: The user's annual household income in INR.
+            owns_pucca_house: Whether the user owns a permanent (pucca) house.
+            age: The user's age in years.
+            is_farmer: Whether the user is a farmer.
+            has_bank_account: Whether the user has a bank account.
+            is_bpl_or_poor: Whether the user belongs to the Below Poverty Line (BPL) category.
+            has_existing_lpg_connection: Whether the user already has an LPG gas connection.
+            applicant_is_female: Whether the primary applicant is female.
+            is_indian_citizen: Whether the user is an Indian citizen.
+        """
+        logger.info(f"[TOOL-CALLED] check_scheme_eligibility was invoked with scheme={scheme_name}")
+        try:
+            from schemes_data import SCHEMES
+            
+            # Clean up scheme name if the model passes a friendly name
+            norm_name = scheme_name.lower().replace(" ", "_")
+            if norm_name not in SCHEMES:
+                # Fuzzy matching fallback can go here, but for now just exact/normalized
+                # Let's check if we can find it as a substring
+                found = None
+                for key in SCHEMES.keys():
+                    if key in norm_name or norm_name in key:
+                        found = key
+                        break
+                
+                if found:
+                    scheme_key = found
+                else:
+                    return f"I don't have enough information to check eligibility for '{scheme_name}'. Ask the user to clarify the scheme name."
+            else:
+                scheme_key = norm_name
+                
+            scheme = SCHEMES[scheme_key]
+            criteria = scheme.get("criteria", {})
+            
+            missing_fields = []
+            eligibility_status = "eligible"
+            reasons = []
+            
+            # Check max annual income
+            if "max_annual_income" in criteria:
+                if annual_income is None:
+                    missing_fields.append("annual household income")
+                elif annual_income > criteria["max_annual_income"]:
+                    eligibility_status = "not eligible"
+                    reasons.append(f"annual income ({annual_income}) exceeds the limit of {criteria['max_annual_income']}")
+            
+            # Check owns pucca house
+            if "must_not_own_pucca_house" in criteria:
+                if owns_pucca_house is None:
+                    missing_fields.append("whether they own a pucca (permanent) house")
+                elif owns_pucca_house:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant already owns a pucca house")
+                    
+            # Check age
+            if "min_age" in criteria:
+                if age is None:
+                    missing_fields.append("age")
+                elif age < criteria["min_age"]:
+                    eligibility_status = "not eligible"
+                    reasons.append(f"age ({age}) is below the minimum required age of {criteria['min_age']}")
+            
+            if "max_age" in criteria:
+                if age is None and "age" not in missing_fields:
+                    missing_fields.append("age")
+                elif age is not None and age > criteria["max_age"]:
+                    eligibility_status = "not eligible"
+                    reasons.append(f"age ({age}) is above the maximum allowed age of {criteria['max_age']}")
+            
+            if "is_farmer" in criteria:
+                if is_farmer is None:
+                    missing_fields.append("whether they are a farmer")
+                elif not is_farmer:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant is not a farmer")
+                    
+            if "is_bpl_or_poor" in criteria:
+                if is_bpl_or_poor is None:
+                    missing_fields.append("whether they belong to the BPL category")
+                elif not is_bpl_or_poor:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant does not belong to the BPL category")
+                    
+            if "has_existing_lpg_connection" in criteria:
+                if has_existing_lpg_connection is None:
+                    missing_fields.append("whether they already have an LPG connection")
+                elif has_existing_lpg_connection:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant already has an LPG connection")
+                    
+            if "applicant_is_female" in criteria:
+                if applicant_is_female is None:
+                    missing_fields.append("whether the applicant is female")
+                elif not applicant_is_female:
+                    eligibility_status = "not eligible"
+                    reasons.append("the scheme is specifically for women")
+                    
+            if "has_bank_account" in criteria:
+                if has_bank_account is None:
+                    missing_fields.append("whether they have a bank account")
+                elif not has_bank_account:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant does not have a bank account")
+                    
+            if "is_indian_citizen" in criteria:
+                if is_indian_citizen is None:
+                    missing_fields.append("whether they are an Indian citizen")
+                elif not is_indian_citizen:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant is not an Indian citizen")
+            
+            if missing_fields:
+                fields_str = ", ".join(missing_fields)
+                return f"I need more information to check eligibility for {scheme['name']}. Please ask the user for their: {fields_str}."
+                
+            if eligibility_status == "eligible":
+                return f"Based on the provided details, the user appears ELIGIBLE for {scheme['name']}. (Note: Data as of {scheme.get('data_as_of')})."
+            else:
+                reasons_str = "; ".join(reasons)
+                return f"Based on the provided details, the user is NOT ELIGIBLE for {scheme['name']} because: {reasons_str}. (Note: Data as of {scheme.get('data_as_of')})."
+                
+        except Exception as e:
+            logger.error(f"[DIAG-TOOL-ERROR] check_scheme_eligibility failed: {e}", exc_info=True)
+            return "An error occurred while checking eligibility. Please ask the user for their relevant details again or advise them to verify eligibility at their bank or official portal."
+
 
 
 server = AgentServer()
