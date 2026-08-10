@@ -1,29 +1,65 @@
-# Voice Agent Starter — Powered by Murf Falcon
+# Arthashathi
 
-Build a production voice AI agent in 5 minutes. Powered by the fastest TTS on the market - swap the system prompt to build anything from customer support to language tutors.
+Arthashathi is a multilingual Indian voice-first financial assistant designed to help users understand government schemes, banking concepts, fraud prevention, and scheme eligibility through natural voice conversations. 
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Murf Falcon](https://img.shields.io/badge/TTS-Murf%20Falcon-6366F1)](https://murf.ai/api/docs/text-to-speech/streaming) [![LiveKit](https://img.shields.io/badge/Transport-LiveKit-002cf2)](https://docs.livekit.io) [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+## Overview
 
----
+Arthashathi is designed to make financial information easier to access through a conversational voice interface tailored for Indian users. It leverages state-of-the-art Voice AI to assist users with:
 
-## Why Murf Falcon
+- Government welfare and financial schemes
+- Banking concepts and processes
+- Fraud and scam awareness/prevention
+- Scheme eligibility checks
+- Returning-user memory and conversational continuity
+- Natural multilingual voice conversations
 
-- **55ms model latency** - fastest production TTS
-- **130ms time-to-first-audio** across 10+ global regions
-- **$0.01/1000 characters** - up to 10x cheaper than alternatives
-- **150+ voices** across 35+ languages
-- **99.38% pronunciation accuracy**
+## Problem
 
----
+Many Indian citizens struggle to navigate complex banking concepts, understand eligibility for government schemes, and protect themselves against financial fraud. Traditional text-based interfaces, complex government portals, and language barriers often prevent people from accessing the financial information and support they need. 
 
-## Architecture
+## Solution
+
+Arthashathi bridges this gap by providing an intuitive, voice-first assistant. Users can simply speak to the agent in their native language to check scheme eligibility, learn about banking, or get advice on scam prevention. By remembering returning callers and maintaining context, Arthashathi acts as a personalized financial companion.
+
+## Key Features
+
+- **Voice-based interaction:** Complete hands-free conversational experience.
+- **Gemini-powered conversational intelligence:** Advanced reasoning and natural dialogue generation.
+- **Murf Falcon-powered voice output:** High-quality, ultra-low latency text-to-speech.
+- **Speech-to-text using Deepgram:** Fast, accurate, multilingual speech recognition.
+- **LiveKit voice communication:** Robust real-time audio transport.
+- **Personalised frontend:** Custom financial-services UI built with Next.js.
+- **Clear voice-agent states:** Visual indicators for Ready, Connecting, Listening, Speaking, and Call ended.
+- **Microphone permission/error handling:** Graceful fallback and user prompts for mic access.
+- **Multilingual Indian-language interaction:** Seamless support for multiple regional languages.
+- **Natural code-switching:** Handles English banking terms seamlessly without breaking the regional language flow.
+- **Mid-conversation language switching:** Agent dynamically adapts if the user switches languages mid-call.
+- **Persistent SQLite memory:** Safely stores non-sensitive caller information across sessions.
+- **Caller lookup & memory storage:** Retrieves previous context and asks for consent before saving new memories.
+- **Returning-caller recognition:** Greets known users by name and references past topics natively.
+- **Scheme eligibility checking:** Actionable tool to check qualifications for schemes like PM Awas Yojana.
+- **Local scheme dataset:** Offline dataset of eligibility criteria.
+- **Graceful handling of unknown schemes/errors:** Conversational fallbacks instead of system crashes.
+- **Safety rules around sensitive financial information:** Strict guardrails preventing the storage of PII and credentials.
+
+## How It Works / Architecture
 
 ```mermaid
 flowchart LR
     A[🎙️ User speaks] -->|audio| B[Deepgram STT]
-    B -->|text| C[LLM]
+    B -->|text| C[Gemini LLM / Agent Logic]
+    
+    subgraph Tools
+    T1[Caller Memory Lookup]
+    T2[Caller Memory Save]
+    T3[Scheme Eligibility Checker]
+    end
+    
+    C <--> Tools
+    Tools <--> DB[(SQLite / Local Dataset)]
+    
     C -->|response text| D[Murf Falcon TTS]
-    D -->|audio| E[LiveKit]
+    D -->|audio| E[LiveKit Transport]
     E -->|stream| F[🔊 User hears]
 
     style A fill:#444441,stroke:#888780,color:#fff
@@ -34,245 +70,175 @@ flowchart LR
     style F fill:#444441,stroke:#888780,color:#fff
 ```
 
----
-
-## Quickstart
-
-### Prerequisites
-
-- **Python** 3.10+
-- **[uv](https://docs.astral.sh/uv/)** - fast Python package manager
-  ```bash
-  # macOS/Linux
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  # Windows (PowerShell)
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-- **Node.js** 18+
-- **pnpm** — fast Node package manager
-  ```bash
-  npm install -g pnpm
-  ```
-- A [LiveKit](https://cloud.livekit.io/) project (free tier available)
-
-### Step 1: Clone the repo
-
-```bash
-git clone https://github.com/murf-ai/murf-livekit-starter.git
-cd murf-livekit-starter
-```
-
-### Step 2: Set up environment variables
-
-Create `.env.local` in both `backend/` and `frontend/` (copy from `.env.example` in each). You need:
-
-| Variable                               | Where to get it                                        | Required |
-| -------------------------------------- | ------------------------------------------------------ | -------- |
-| `LIVEKIT_URL`                          | LiveKit Cloud dashboard                                | Yes      |
-| `LIVEKIT_API_KEY`                      | LiveKit Cloud dashboard                                | Yes      |
-| `LIVEKIT_API_SECRET`                   | LiveKit Cloud dashboard                                | Yes      |
-| `MURF_API_KEY`                         | [murf.ai/api/dashboard](https://murf.ai/api/dashboard) | Yes      |
-| `DEEPGRAM_API_KEY`                     | [deepgram.com](https://deepgram.com)                   | Yes      |
-| `GOOGLE_API_KEY` (or `OPENAI_API_KEY`) | Depends on LLM choice                                  | Yes      |
-
-### Step 3: Install backend dependencies
-
-```bash
-cd backend
-uv sync
-uv run python src/agent.py download-files
-```
-
-### Step 4: Install frontend dependencies
-
-```bash
-cd frontend
-pnpm install
-```
-
-### Step 5: Run it
-
-**Option A - All-in-one (from repo root):**
-
-```bash
-# macOS/Linux
-chmod +x start_app.sh
-./start_app.sh
-
-# Windows (PowerShell)
-.\start_app.ps1
-```
-
-**Option B - Separate terminals:**
-
-```bash
-# Terminal 1 — LiveKit Server
-livekit-server --dev
-
-# Terminal 2 — Backend agent
-cd backend && uv run python src/agent.py dev
-
-# Terminal 3 — Frontend
-cd frontend && pnpm dev
-```
-
-Then open **http://localhost:3000** in your browser.
-
-You should now see the voice agent UI. Click **Start talking**, allow microphone access, and speak — the agent will respond with Murf Falcon TTS. Ensure your backend and (if using Option B) LiveKit server are running.
-
----
-
-## Deploy
-
-Want to deploy this beyond localhost? You'll need to deploy **two services**: the backend agent and the frontend. Both must use the same LiveKit project.
-
-> This is a two-service app — the backend agent and the frontend UI deploy separately. You'll need both running and connected to the same LiveKit project.
-
-### Backend (Python agent) — Deploy to Railway
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/tIVCF1?referralCode=cNjn2P&utm_medium=integration&utm_source=template&utm_campaign=generic)
-
-Set these environment variables in Railway:
-
-- `MURF_API_KEY`
-- `DEEPGRAM_API_KEY`
-- `GOOGLE_API_KEY` or `OPENAI_API_KEY`
-- `LIVEKIT_URL`
-- `LIVEKIT_API_KEY`
-- `LIVEKIT_API_SECRET`
-
-The backend runs as a long-lived Python process that connects to LiveKit as an agent. Railway handles this well.
-
-### Frontend (Next.js) — Deploy to Vercel
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/murf-ai/murf-livekit-starter&root-directory=frontend&env=LIVEKIT_URL,LIVEKIT_API_KEY,LIVEKIT_API_SECRET&project-name=murf-voice-agent&repository-name=murf-voice-agent)
-
-Set these environment variables in Vercel:
-
-- `LIVEKIT_URL`
-- `LIVEKIT_API_KEY`
-- `LIVEKIT_API_SECRET`
-- `AGENT_NAME` (optional — for explicit agent dispatch)
-
-The frontend is a standard Next.js app. Point it at the same LiveKit instance your backend agent is connected to.
-
-### Connecting them
-
-The frontend and backend don't call each other directly — they both connect to **LiveKit**, which handles the real-time audio transport.
-
-1. Use the **same** `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` on both Railway and Vercel
-2. Set `AGENT_NAME=my-agent` on Vercel — this matches the `agent_name="my-agent"` registered in `backend/src/agent.py`
-3. Verify: Railway logs should show the agent connected to LiveKit. Open your Vercel URL, click **Start talking** — the agent should respond
-
-If the agent doesn't connect, double-check that both services point to the same LiveKit project and that the backend is running (check Railway logs).
-
----
-
-## Change the Use Case
-
-The default system prompt makes this a **customer support agent**. You can change the agent’s behavior by editing the prompt.
-
-**Where the prompt lives:** `backend/src/agent.py`- the `SYSTEM_PROMPT` constant (near the top of the file, after the imports). Change that string to change what your voice agent does.
-
-### Example prompts (copy-paste)
-
-**Customer Support (default):**
-
-```
-You are a friendly and efficient customer support agent for a tech company. Help users with account issues, billing questions, and product troubleshooting. Be concise, empathetic, and solution-oriented. If you don't know something, say so honestly and offer to escalate.
-```
-
-**Language Tutor:**
-
-```
-You are a patient and encouraging language tutor helping the user practice conversational Spanish. Speak primarily in Spanish but switch to English to explain grammar or vocabulary when needed. Correct mistakes gently and suggest better phrasing. Keep conversations natural and fun.
-```
-
-**AI Receptionist:**
-
-```
-You are a professional receptionist for a medical clinic. Help callers schedule appointments, answer questions about office hours and services, and take messages for doctors. Be warm but efficient. Ask for the caller's name and reason for calling upfront.
-```
-
-See the Configuration section below for voice, STT, and LLM options.
-
----
-
-## Configuration
-
-### Murf voice
-
-Edit the `tts=murf.TTS(...)` call in `backend/src/agent.py`. Set the `voice` argument to any Murf voice ID. Examples:
-
-- `Anisha` — Indian English (female, default in this starter)
-- `Pooja` — Indian English (female)
-- `Samar` — Indian English (male)
-- `Amara` — US English (female)
-- `Gordon` — US English (male)
-- `Hazel` — UK English (female)
-- `Bertie` — UK English (male)
-
-Browse all voices: [Murf Voice Library](https://murf.ai/api/docs/voices-styles/voice-library).
-
-### STT provider
-
-STT is configured in `backend/src/agent.py` in the `AgentSession(stt=...)` call. The default is Deepgram (`deepgram.STT(model="nova-3")`). You can swap to another LiveKit-compatible STT plugin if needed.
-
-### LLM (Gemini vs OpenAI)
-
-- **Gemini (default):** Set `GOOGLE_API_KEY` and use `llm=google.LLM(model="gemini-3.5-flash-lite")` in `agent.py`.
-- **OpenAI:** Set `OPENAI_API_KEY`, add the OpenAI plugin, and use the corresponding `llm=openai.LLM(...)` in `agent.py`.
-
-### Audio format
-
-Murf Falcon and LiveKit handle audio format internally. For advanced options, see [Murf API docs](https://murf.ai/api/docs) and [LiveKit docs](https://docs.livekit.io).
-
----
+## Voice Interaction
+
+The system relies on LiveKit for real-time audio streaming, Deepgram for near-instant speech transcription, and Murf Falcon for human-like voice synthesis. The interaction feels like a real phone call, complete with natural pauses, conversational turn-taking, and active listening.
+
+## Multilingual Support
+
+Arthashathi is explicitly designed for Indian multilingual conversations. It currently supports:
+- Bengali
+- Hindi
+- Tamil
+- Telugu
+- Marathi
+- Gujarati
+- Punjabi
+- Kannada
+- Malayalam
+- Odia
+- Assamese
+- English
+
+**Mid-conversation Switching:** The agent continuously follows the user's latest meaningful language. If a user starts in Hindi and then switches to Bengali mid-call, the agent will seamlessly switch to Bengali for its next response.
+
+**Natural Code-Switching:** English banking terms inside Indian-language speech (e.g., *bank, account, UPI, ATM, PIN, OTP, CVV, fraud, scam, transaction, loan*) do not incorrectly cause a language switch. For example, *"Amar bank account e ekta fraud transaction hoyeche"* will correctly trigger a Bengali response, not English.
+
+## Day-by-Day Development
+
+### Day 1
+Established the foundational voice agent using LiveKit, Murf Falcon TTS, and Deepgram STT. Configured the Gemini model as the conversational brain.
+
+### Day 2
+Implemented comprehensive system prompts and guardrails. Trained the agent on specific government schemes, fraud prevention protocols, and general banking concepts, establishing the core "Arthashathi" persona.
+
+### Day 3 — Personalised Frontend
+The generic LiveKit frontend was heavily personalised for Arthashathi's financial-services use case. Clear voice-agent states were implemented (Ready, Connecting, Listening, Speaking, Call ended) to make it obvious who is speaking. Microphone permission errors were cleanly handled, and the complete flow was tested from page load through connection and restarting.
+
+### Day 4 — Persistent Memory
+Built a persistent SQLite memory system so the agent can remember returning callers across backend restarts.
+- `lookup_caller` retrieves existing information.
+- `remember_caller` saves information learned during a conversation.
+- The agent explicitly asks for consent before saving memory.
+- Returning callers are proactively greeted by name with references to previous conversations.
+- Strict safety rules prevent the storage of sensitive banking credentials.
+
+### Day 5 — Scheme Eligibility Tool
+Upgraded the agent from static knowledge to active tooling by implementing a Scheme Eligibility Checker.
+The agent now uses a local dataset (`schemes_data.py`) to actively evaluate user-provided metrics (income, age, housing status) against scheme criteria, providing concrete eligibility answers instead of generic descriptions.
+
+## Memory Architecture
+
+The persistent memory is built on a local SQLite database (`arthasathi_users.db`). It uses a stable `caller_id` (derived from the LiveKit participant identity) to securely match callers.
+
+Stored information includes:
+- Name
+- Language preference
+- Relevant financial topics/facts discussed
+- Last interaction timestamp
+
+**Important:** The system explicitly filters out and refuses to store sensitive credentials (OTPs, PINs, Passwords, Bank Account numbers, Aadhaar/PAN). The memory is accessed via LLM tools (`@function_tool`), keeping the database cleanly separated from the prompt context.
+
+## Scheme Eligibility System
+
+### Data Source
+The scheme eligibility checker uses a **LOCAL, HAND-BUILT dataset** located at `backend/src/schemes_data.py`. 
+*Note: It does NOT use a live government API. There is no single unified, publicly accessible real-time API for Indian government scheme eligibility criteria.*
+
+### What the dataset contains
+- Scheme name
+- Short benefit summary
+- Concrete eligibility criteria (e.g., `max_annual_income`, `min_age`, `must_not_own_pucca_house`, `is_farmer`)
+- `data_as_of` field indicating when the criteria were compiled.
+
+### How it works
+1. User asks whether they are eligible for a specific scheme.
+2. Agent identifies the scheme and asks conversationally for any missing required information (e.g., income).
+3. The agent does NOT guess missing info.
+4. Agent calls `check_scheme_eligibility`.
+5. The function performs fuzzy/substring matching on the scheme name and evaluates the provided information against the local dataset.
+6. The result (eligible, not eligible, or missing information) is returned to the LLM and converted into a natural-language explanation.
+7. Unknown schemes trigger a graceful conversational fallback without crashing the session.
+
+## Technology Stack
+
+- **Python** (Backend logic and Agent architecture)
+- **LiveKit** (Real-time audio transport and WebRTC)
+- **Gemini 3.1 Flash Lite** (LLM conversational engine)
+- **Murf Falcon** (Ultra-low latency Text-to-Speech)
+- **Deepgram** (Speech-to-Text)
+- **SQLite** (Persistent memory storage)
+- **Next.js / React** (Frontend UI)
+- **TypeScript** (Frontend logic)
 
 ## Project Structure
 
-```
+```text
 murf-livekit-starter/
-├── backend/                 # Python voice agent (LiveKit Agents + Murf Falcon)
+├── backend/                 
 │   ├── src/
-│   │   └── agent.py         # Agent entrypoint, pipeline (STT/LLM/TTS), system prompt
-│   ├── tests/               # Agent tests
-│   ├── .env.example         # Backend env template
-│   ├── pyproject.toml       # Python deps (uv)
-│   └── railway.toml         # Railway deploy config
-├── frontend/                # Next.js UI for voice sessions
+│   │   ├── agent.py            # Agent entrypoint, LiveKit tools, pipeline setup
+│   │   ├── prompt.py           # Arthashathi persona, language rules, guardrails
+│   │   ├── database.py         # SQLite connection and memory queries
+│   │   ├── schemes_data.py     # Local eligibility criteria dataset
+│   │   └── arthasathi_users.db # Local SQLite database
+│   ├── .env.local              # Backend credentials
+│   └── pyproject.toml          # Python dependencies
+├── frontend/                
 │   ├── app/
-│   │   ├── page.tsx         # Main page
-│   │   └── api/token/       # LiveKit token endpoint (dev)
-│   ├── components/          # UI (agents-ui, app config, theme)
-│   ├── app-config.ts        # Branding, title, button text, accent
-│   ├── .env.example         # Frontend env template
-│   └── package.json         # Node deps (pnpm)
-├── start_app.sh             # Start LiveKit + backend + frontend (macOS/Linux)
-├── start_app.ps1            # Start LiveKit + backend + frontend (Windows)
-├── README.md                # This file
+│   │   ├── page.tsx            # Main application UI
+│   │   └── api/token/          # LiveKit token generation endpoint
+│   ├── components/             # React components for voice visualizers and state
+│   ├── .env.local              # Frontend credentials
+│   └── package.json            # Node dependencies
+├── start_app.sh                # Start script (macOS/Linux)
+└── README.md                   # This file
 ```
 
-For deeper documentation on each part, see:
+## Running the Project
 
-- [Backend Documentation](./backend/README.md) — agent pipeline, voice/LLM/STT configuration, testing, deployment
-- [Frontend Documentation](./frontend/README.md) — UI customization, visualizers, theming, component architecture
+### Prerequisites
+- Python 3.10+ and `uv`
+- Node.js 18+ and `pnpm`
+- API Keys for LiveKit, Murf, Deepgram, and Google (Gemini)
 
----
+### Start up
+Add your API keys to `.env.local` in both `backend/` and `frontend/`.
+Then run from the root directory:
 
-## Links
+```bash
+chmod +x start_app.sh
+./start_app.sh
+```
+Open **http://localhost:3000** in your browser, click **Start talking**, and allow microphone access.
 
-- [Murf API Docs](https://murf.ai/api/docs)
-- [Murf Voice Library](https://murf.ai/api/docs/voices-styles/voice-library)
-- [LiveKit Docs](https://docs.livekit.io)
-- [Deepgram Docs](https://developers.deepgram.com)
-- [Murf Falcon Benchmarks](https://murf.ai/falcon/benchmarks)
-- [TTS Latency Benchmarker](https://github.com/sahilsgupta/tts-latency-benchmarker) — run your own p50/p95 tests across providers
-- [Murf Discord](https://discord.gg/FbKAy96Sz7)
-- [Murf Startup Incubator](https://murf.ai/api) — 50M free characters for startups
+## Testing
 
----
+**Test Returning Memory:**
+1. Start a call. "My name is Rahul. Tell me about loans. Please remember me."
+2. End the call. Start a new call.
+3. "Hi, I am Rahul."
+4. *Expected:* The agent proactively greets Rahul and references the loan conversation.
 
-## License
+**Test Scheme Eligibility:**
+1. "Am I eligible for PM Awas Yojana?"
+2. *Expected:* The agent asks for your income and housing status before determining eligibility.
 
-MIT
+**Test Graceful Failure:**
+1. "Am I eligible for the Fake Spaceship Yojana?"
+2. *Expected:* The agent politely informs you it doesn't have information on that scheme.
+
+## Safety & Limitations
+
+- **No Credentials:** The assistant does not request OTP, PIN, CVV, passwords, or other sensitive credentials.
+- **Informational Only:** Scheme eligibility results are informational and must be verified through official sources. The assistant does not promise approval or guaranteed eligibility.
+- **Data Freshness:** Local scheme criteria may become outdated. The local eligibility dataset is not a live government API.
+- **Official Channels:** Users should always verify important financial decisions through official bank channels or government portals.
+
+## Future Improvements
+
+- Live official scheme data integrations where reliable government APIs become available.
+- Expanded dataset covering more state and central government schemes.
+- User authentication for production-grade identity and security.
+- More robust per-user memory isolation.
+- Forget/delete-my-memory user controls.
+- RAG (Retrieval-Augmented Generation) over official scheme PDFs and documents.
+- Low-bandwidth optimization for rural connectivity.
+- Support for additional Indian languages and dialects.
+
+## Challenge / Credits
+
+Arthashathi was built as part of the **10 Days of Voice Agents** challenge.
+It leverages **Murf Falcon** for high-quality, ultra-fast Indian voice generation. 
+
+#VoiceForBharat
