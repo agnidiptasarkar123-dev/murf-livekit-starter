@@ -40,10 +40,16 @@ def init_db() -> None:
                     name              TEXT,
                     language_preference TEXT,
                     facts             TEXT DEFAULT '{}',
-                    last_interaction  TEXT
+                    last_interaction  TEXT,
+                    do_not_call       BOOLEAN DEFAULT FALSE
                 )
                 """
             )
+            # Gentle migration in case the table already exists without do_not_call
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN do_not_call BOOLEAN DEFAULT FALSE")
+            except sqlite3.OperationalError:
+                pass # Column already exists
             conn.commit()
         logger.info(f"[DB] Database initialised at {_DB_PATH}")
     except Exception as e:
@@ -107,6 +113,23 @@ def save_user(
         logger.info(f"[DB] Saved caller: user_id={user_id}, name={name}, lang={language_preference}")
     except Exception as e:
         logger.error(f"[DB-ERROR] Error saving user {user_id}: {e}")
+
+def set_do_not_call(user_id: str) -> None:
+    """
+    Mark a user's record with do_not_call = True so we never proactively call them again.
+    """
+    try:
+        with _get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE users SET do_not_call = TRUE WHERE user_id = ?
+                """,
+                (user_id,)
+            )
+            conn.commit()
+        logger.info(f"[DB] Marked user_id={user_id} as DO NOT CALL")
+    except Exception as e:
+        logger.error(f"[DB-ERROR] Error setting do_not_call for user {user_id}: {e}")
 
 
 # Initialise the table when the module is imported

@@ -1,0 +1,36 @@
+{"message": "starting worker", "level": "INFO", "name": "livekit.agents", "version": "1.4.5", "rtc-version": "1.1.2", "timestamp": "2026-08-11T17:16:16.790121+00:00"}
+{"message": "starting inference executor", "level": "INFO", "name": "livekit.agents", "timestamp": "2026-08-11T17:16:16.790206+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9112, "inference": true, "timestamp": "2026-08-11T17:16:16.802536+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9112, "inference": true, "elapsed_time": 2.4, "timestamp": "2026-08-11T17:16:19.204685+00:00"}
+{"message": "HTTP server listening on :8081", "level": "INFO", "name": "livekit.agents", "timestamp": "2026-08-11T17:16:19.207236+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9114, "timestamp": "2026-08-11T17:16:19.216243+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9115, "timestamp": "2026-08-11T17:16:19.216436+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9116, "timestamp": "2026-08-11T17:16:19.216645+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9117, "timestamp": "2026-08-11T17:16:19.216780+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9115, "elapsed_time": 1.21, "timestamp": "2026-08-11T17:16:20.431466+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9114, "timestamp": "2026-08-11T17:16:20.431071+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9115, "timestamp": "2026-08-11T17:16:20.430886+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9114, "elapsed_time": 1.22, "timestamp": "2026-08-11T17:16:20.434003+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9117, "timestamp": "2026-08-11T17:16:20.433571+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9116, "timestamp": "2026-08-11T17:16:20.432045+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9116, "elapsed_time": 1.22, "timestamp": "2026-08-11T17:16:20.434807+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9117, "elapsed_time": 1.22, "timestamp": "2026-08-11T17:16:20.434907+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9118, "timestamp": "2026-08-11T17:16:20.450648+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9119, "timestamp": "2026-08-11T17:16:20.451343+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9120, "timestamp": "2026-08-11T17:16:20.451494+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9121, "timestamp": "2026-08-11T17:16:20.451628+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9119, "timestamp": "2026-08-11T17:16:21.699763+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9119, "elapsed_time": 1.25, "timestamp": "2026-08-11T17:16:21.700511+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9120, "timestamp": "2026-08-11T17:16:21.701067+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9121, "timestamp": "2026-08-11T17:16:21.701305+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9118, "timestamp": "2026-08-11T17:16:21.703279+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9120, "elapsed_time": 1.25, "timestamp": "2026-08-11T17:16:21.704178+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9121, "elapsed_time": 1.25, "timestamp": "2026-08-11T17:16:21.704901+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9118, "elapsed_time": 1.25, "timestamp": "2026-08-11T17:16:21.705034+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9122, "timestamp": "2026-08-11T17:16:21.705686+00:00"}
+{"message": "initializing process", "level": "INFO", "name": "livekit.agents", "pid": 9123, "timestamp": "2026-08-11T17:16:21.708339+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9123, "timestamp": "2026-08-11T17:16:22.859726+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9123, "elapsed_time": 1.15, "timestamp": "2026-08-11T17:16:22.860237+00:00"}
+{"message": "process initialized", "level": "INFO", "name": "livekit.agents", "pid": 9122, "elapsed_time": 1.16, "timestamp": "2026-08-11T17:16:22.861794+00:00"}
+{"message": "VAD model prewarmed successfully (min_silence_duration=0.3s)", "level": "INFO", "name": "agent", "pid": 9122, "timestamp": "2026-08-11T17:16:22.861624+00:00"}
+{"message": "registered worker", "level": "INFO", "name": "livekit.agents", "agent_name": "my-agent", "id": "AW_xxzh9G2uBpXR", "url": "wss://voiceragent-8igxz63z.livekit.cloud", "region": "India South", "protocol": 17, "timestamp": "2026-08-11T17:16:23.218115+00:00"}

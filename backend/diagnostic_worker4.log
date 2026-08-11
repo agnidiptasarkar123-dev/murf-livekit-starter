@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/agnidiptasarkar/.gemini/antigravity-ide/brain/73ab96d2-3677-440a-8ce1-ee5e710a59e9/scratch/test_worker.py", line 16, in <module>
+    cli.run_app(WorkerOptions(entrypoint=entrypoint, agent_name="my-agent"))
+                ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: ServerOptions.__init__() got an unexpected keyword argument 'entrypoint'. Did you mean 'entrypoint_fnc'?

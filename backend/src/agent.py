@@ -262,7 +262,21 @@ class Assistant(Agent):
             logger.error(f"[DIAG-TOOL-ERROR] check_scheme_eligibility failed: {e}", exc_info=True)
             return "An error occurred while checking eligibility. Please ask the user for their relevant details again or advise them to verify eligibility at their bank or official portal."
 
-
+    @function_tool
+    async def opt_out_of_calls(self, context: RunContext) -> str:
+        """Call this function when a user indicates they want no further outbound calls 
+        (e.g., "don't call me again", "stop calling", "remove me").
+        This will mark their record so they won't be bothered again.
+        """
+        user_id = context.userdata.get("user_id", "unknown")
+        logger.info(f"[TOOL-CALLED] opt_out_of_calls was invoked for user_id={user_id}")
+        try:
+            from database import set_do_not_call
+            set_do_not_call(user_id)
+            return "The user has been marked as DO NOT CALL. Please acknowledge this politely and end the conversation."
+        except Exception as e:
+            logger.error(f"[DIAG-TOOL-ERROR] opt_out_of_calls failed: {e}", exc_info=True)
+            return "Failed to update the database, but politely tell the user their request has been noted and end the call."
 
 server = AgentServer()
 
@@ -280,7 +294,7 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-@server.rtc_session(agent_name="my-agent")
+@server.rtc_session(agent_name="murf-agent")
 async def my_agent(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
@@ -305,13 +319,14 @@ async def my_agent(ctx: JobContext):
         llm=google.LLM(
             model="gemini-3.1-flash-lite",
         ),
-        # TTS: Murf — locale-agnostic voice name for multilingual support
+                # TTS: Murf — smooth continuous chunks
         tts=murf.TTS(
             voice="Anisha",
             style="Conversation",
-            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
-            text_pacing=True
+            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=15),
+            text_pacing=False
         ),
+
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=False,
@@ -437,7 +452,7 @@ async def my_agent(ctx: JobContext):
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=lambda params: (
                     noise_cancellation.BVCTelephony()
-                    if params.participant.kind
+                    if getattr(getattr(params, "participant", None), "kind", None)
                     == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
                     else noise_cancellation.BVC()
                 ),
@@ -445,24 +460,57 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
+    logger.info("AGENT JOB RECEIVED - connecting to room")
     await ctx.connect()
+    logger.info("ROOM CONNECTED")
 
-    # Derive a stable caller identity from the REMOTE participant (the browser user).
-    # Their .identity is set by the frontend token generator and is stable per session.
-    remote_participants = list(ctx.room.remote_participants.values())
-    if remote_participants:
-        caller_id = remote_participants[0].identity or "unknown-participant"
-    else:
-        # Fallback if no remote participant is found upon connection
-        caller_id = "unknown-participant"
+    import asyncio
+    
+    participant_joined = asyncio.Event()
+    caller_id = "unknown-participant"
+    
+    # Check if participant is already present
+    for p in ctx.room.remote_participants.values():
+        if p.kind in (rtc.ParticipantKind.PARTICIPANT_KIND_SIP, rtc.ParticipantKind.PARTICIPANT_KIND_STANDARD):
+            caller_id = p.identity or "unknown-participant"
+            participant_joined.set()
+            break
+            
+    # Listen for participant to connect if not already present
+    @ctx.room.on("participant_connected")
+    def on_participant_connected(p: rtc.RemoteParticipant):
+        nonlocal caller_id
+        if p.kind in (rtc.ParticipantKind.PARTICIPANT_KIND_SIP, rtc.ParticipantKind.PARTICIPANT_KIND_STANDARD):
+            caller_id = p.identity or "unknown-participant"
+            participant_joined.set()
 
+        logger.info("WAITING FOR SIP PARTICIPANT TO JOIN...")
+    await participant_joined.wait()
+    
     session.userdata["user_id"] = caller_id
-    logger.info(f"[ID-DEBUG] caller_id assigned: '{caller_id}'")
+    logger.info("SIP PARTICIPANT JOINED")
 
-    logger.info("[DIAG-INIT] Agent connected to room and pipeline is live")
+    # --- THE MAGIC FIX: WAIT FOR LINPHONE AUDIO CHANNEL TO OPEN ---
+    # Give Linphone 2 seconds to fully connect the audio before speaking
+    import asyncio
+    logger.info("Waiting 2 seconds for SIP audio tracks to fully establish...")
+    await asyncio.sleep(2.0)
 
-    # Greeting in Hindi (agent will follow user language after this)
-    await session.say("नमस्ते, मैं अर्थसाथी हूँ। बैंकिंग, सरकारी योजनाओं, और धोखाधड़ी से बचाव में आपकी मदद कर सकता हूँ। बताइए, आज मैं आपकी कैसे सहायता कर सकता हूँ?", allow_interruptions=True)
+    # --- STRICT DAY 6 OUTBOUND GREETING ---
+    outbound_greeting = (
+        "Namaskar, I am Arthashathi, your financial guide. "
+        "I am calling to remind you that your PM Awas Yojana application deadline is tomorrow. "
+        "If you do not want to receive these calls, please just hang up. "
+        "Otherwise, would you like to know the required documents?"
+    )
+
+    logger.info("Speaking the outbound greeting...")
+    await session.say(outbound_greeting, allow_interruptions=True)
+
+    logger.info("KEEPING JOB ALIVE")
+    await asyncio.Event().wait()
+    logger.info("SESSION ENDED")
+
 
 
 if __name__ == "__main__":

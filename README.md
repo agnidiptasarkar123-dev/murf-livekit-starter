@@ -117,6 +117,12 @@ Built a persistent SQLite memory system so the agent can remember returning call
 Upgraded the agent from static knowledge to active tooling by implementing a Scheme Eligibility Checker.
 The agent now uses a local dataset (`schemes_data.py`) to actively evaluate user-provided metrics (income, age, housing status) against scheme criteria, providing concrete eligibility answers instead of generic descriptions.
 
+### Day 6 — Proactive Outbound Calling
+Added the ability for Arthashathi to initiate outbound SIP calls (e.g., scheme deadline reminders) rather than waiting for users to call in.
+- Developed `outbound_call.py` to trigger outbound calls using LiveKit's SIP Trunking and `agent_dispatch` APIs.
+- Updated the agent prompt to enforce a mandatory, compliant outbound opening (stating who is calling, why, and providing an opt-out).
+- Implemented an `opt_out_of_calls` LLM tool and a `do_not_call` database flag to ensure users who opt out are never called again.
+
 ## Memory Architecture
 
 The persistent memory is built on a local SQLite database (`arthasathi_users.db`). It uses a stable `caller_id` (derived from the LiveKit participant identity) to securely match callers.
