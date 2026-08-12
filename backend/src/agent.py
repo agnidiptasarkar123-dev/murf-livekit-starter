@@ -276,7 +276,38 @@ class Assistant(Agent):
             return "The user has been marked as DO NOT CALL. Please acknowledge this politely and end the conversation."
         except Exception as e:
             logger.error(f"[DIAG-TOOL-ERROR] opt_out_of_calls failed: {e}", exc_info=True)
-            return "Failed to update the database, but politely tell the user their request has been noted and end the call."
+            return "Failed to update the database. Just end the conversation politely."
+
+    @function_tool
+    async def create_escalation(
+        self,
+        reason: str,
+        summary: str,
+        urgency: str,
+        caller_language: str,
+        preferred_followup: str,
+        context: RunContext
+    ) -> str:
+        """Call this ONLY after (a) identifying the situation genuinely needs human help per the two categories (fraud in progress or decisions needing human authority), AND (b) asking the caller for permission to share their information and getting an explicit yes.
+        Never call this for routine questions the agent can already answer.
+        The summary must NEVER include OTPs, PINs, passwords, account numbers, card numbers, Aadhaar/PAN numbers, or other sensitive credentials — only the general nature of the issue.
+        """
+        user_id = context.userdata.get("user_id", "unknown")
+        logger.info(f"[TOOL-CALLED] create_escalation invoked for user_id={user_id}, urgency={urgency}")
+        try:
+            from escalation import send_escalation
+            ref_id = await send_escalation(
+                reason=reason,
+                summary=summary,
+                urgency=urgency,
+                caller_language=caller_language,
+                preferred_followup=preferred_followup,
+                caller_id=user_id
+            )
+            return f"Your request has been logged with reference {ref_id}. A team member will review it, though I can't guarantee an immediate response."
+        except Exception as e:
+            logger.error(f"[DIAG-TOOL-ERROR] create_escalation failed: {e}", exc_info=True)
+            return "An error occurred while escalating. Please advise the user to contact the helpline directly."
 
 server = AgentServer()
 
@@ -305,13 +336,13 @@ async def my_agent(ctx: JobContext):
     # -------------------------------------------------------------------------
     session = AgentSession(
         userdata={},
-        # STT: Deepgram Nova-2 — broad compatibility, proven stable
+        # STT: Deepgram Nova-3
         stt=deepgram.STT(
             model="nova-3",
             language="multi",
             interim_results=True,
             no_delay=True,
-            endpointing_ms=800,
+            endpointing_ms=300,  # Lowered from 800ms for much faster response latency
             smart_format=False,
             punctuate=False,
         ),
@@ -319,22 +350,22 @@ async def my_agent(ctx: JobContext):
         llm=google.LLM(
             model="gemini-3.1-flash-lite",
         ),
-                # TTS: Murf — smooth continuous chunks
+        # TTS: Murf — smooth continuous chunks
         tts=murf.TTS(
             voice="Anisha",
             style="Conversation",
-            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=15),
-            text_pacing=False
+            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=5),
+            # Removed text_pacing=False to ensure end_of_stream emits properly and pipeline unlocks
         ),
 
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=False,
         # Reduced endpointing delays for faster response initiation
-        min_endpointing_delay=0.6,
-        max_endpointing_delay=1.5,
+        min_endpointing_delay=0.4,
+        max_endpointing_delay=1.0,
         # Interruption settings
-        min_interruption_duration=0.7,
+        min_interruption_duration=0.4, # Lowered from 0.7s so "Wait" interrupts easily
         # pyrefly: ignore [parse-error]
         )
 
@@ -490,22 +521,50 @@ async def my_agent(ctx: JobContext):
     session.userdata["user_id"] = caller_id
     logger.info("SIP PARTICIPANT JOINED")
 
-    # --- THE MAGIC FIX: WAIT FOR LINPHONE AUDIO CHANNEL TO OPEN ---
-    # Give Linphone 2 seconds to fully connect the audio before speaking
-    import asyncio
-    logger.info("Waiting 2 seconds for SIP audio tracks to fully establish...")
-    await asyncio.sleep(2.0)
+    # Check for outbound call metadata
+    is_outbound = False
+    reason_for_call = ""
+    if ctx.room.metadata:
+        import json
+        try:
+            meta = json.loads(ctx.room.metadata)
+            is_outbound = meta.get("outbound", False)
+            reason_for_call = meta.get("reason", "")
+        except json.JSONDecodeError:
+            pass
 
-    # --- STRICT DAY 6 OUTBOUND GREETING ---
-    outbound_greeting = (
-        "Namaskar, I am Arthashathi, your financial guide. "
-        "I am calling to remind you that your PM Awas Yojana application deadline is tomorrow. "
-        "If you do not want to receive these calls, please just hang up. "
-        "Otherwise, would you like to know the required documents?"
-    )
+    logger.info(f"GREETING START (is_outbound={is_outbound}, metadata={ctx.room.metadata})")
 
-    logger.info("Speaking the outbound greeting...")
-    await session.say(outbound_greeting, allow_interruptions=True)
+    if is_outbound:
+        # --- THE MAGIC FIX: WAIT FOR LINPHONE AUDIO CHANNEL TO OPEN ---
+        # Give Linphone 2 seconds to fully connect the audio before speaking
+        import asyncio
+        logger.info("Waiting 2 seconds for SIP audio tracks to fully establish...")
+        await asyncio.sleep(2.0)
+
+        # --- STRICT DAY 6 OUTBOUND GREETING ---
+        outbound_greeting = (
+            "Namaskar, I am Arthashathi, your financial guide. "
+            "I am calling to remind you that your PM Awas Yojana application deadline is tomorrow. "
+            "If you do not want to receive these calls, please just hang up. "
+            "Otherwise, would you like to know the required documents?"
+        )
+        logger.info("Speaking the outbound greeting...")
+        try:
+            await session.say(outbound_greeting, allow_interruptions=False)
+        except asyncio.CancelledError:
+            pass
+    else:
+        # --- NORMAL BROWSER GREETING ---
+        browser_greeting = "Namaskar, I'm Arthashathi. How can I help you today?"
+        logger.info("Speaking the browser greeting...")
+        import asyncio
+        try:
+            await session.say(browser_greeting, allow_interruptions=True)
+        except asyncio.CancelledError:
+            logger.info("Browser greeting was interrupted by the user. Continuing session.")
+            pass
+
 
     logger.info("KEEPING JOB ALIVE")
     await asyncio.Event().wait()
