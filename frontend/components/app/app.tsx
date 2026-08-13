@@ -7,12 +7,12 @@ import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
+import { LanguageProvider } from '@/components/app/language-context';
 import { ViewController } from '@/components/app/view-controller';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
 import { getSandboxTokenSource } from '@/lib/utils';
-import { LanguageProvider } from '@/components/app/language-context';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
 

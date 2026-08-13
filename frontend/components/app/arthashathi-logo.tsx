@@ -14,7 +14,7 @@ export function ArthashathiLogo({ className, size = 64, ...props }: ArthashathiL
       viewBox="0 0 100 100"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={cn("text-teal-900 dark:text-teal-400", className)}
+      className={cn('text-teal-900 dark:text-teal-400', className)}
       {...props}
     >
       {/* Outer Shield Outline */}
@@ -34,7 +34,7 @@ export function ArthashathiLogo({ className, size = 64, ...props }: ArthashathiL
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      
+
       {/* Rupee Symbol */}
       <g stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M40 35H60" />

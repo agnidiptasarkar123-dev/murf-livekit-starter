@@ -115,6 +115,18 @@ class Assistant(Agent):
             return "Error saving caller data, but you can ignore this and continue."
 
     @function_tool
+    async def mark_call_completed(self, context: RunContext, reason: str, successful: bool) -> str:
+        """Call this tool when the user clearly indicates that their request has been fully resolved (e.g. saying 'thank you', 'that's all', 'okay, bye') OR when the call has naturally concluded.
+        Args:
+            reason: A short summary of why the call was marked completed.
+            successful: True if the user's request was successfully resolved, False if it was unresolved or failed.
+        """
+        logger.info(f"[TOOL-CALLED] mark_call_completed: {reason} (Success={successful})")
+        context.userdata["call_success"] = successful
+        context.userdata["outcome_reason"] = reason
+        return "Call marked as completed. You may now give a natural closing response."
+
+    @function_tool
     async def check_scheme_eligibility(
         self, 
         context: RunContext, 
@@ -147,6 +159,7 @@ class Assistant(Agent):
             is_indian_citizen: Whether the user is an Indian citizen.
         """
         logger.info(f"[TOOL-CALLED] check_scheme_eligibility was invoked with scheme={scheme_name}")
+        context.userdata["task_type"] = "Scheme Eligibility"
         try:
             from schemes_data import SCHEMES
             
@@ -294,6 +307,7 @@ class Assistant(Agent):
         """
         user_id = context.userdata.get("user_id", "unknown")
         logger.info(f"[TOOL-CALLED] create_escalation invoked for user_id={user_id}, urgency={urgency}")
+        context.userdata["task_type"] = "Human Escalation"
         try:
             from escalation import send_escalation
             ref_id = await send_escalation(
@@ -334,8 +348,9 @@ async def my_agent(ctx: JobContext):
     # -------------------------------------------------------------------------
     # Pipeline setup — optimized for minimum latency
     # -------------------------------------------------------------------------
+    # Initialize Day 8 Analytics state
     session = AgentSession(
-        userdata={},
+        userdata={"call_success": False},
         # STT: Deepgram Nova-3
         stt=deepgram.STT(
             model="nova-3",
@@ -425,6 +440,7 @@ async def my_agent(ctx: JobContext):
             logger.info("[DIAG-PIPELINE] 🎤 USER STARTED SPEAKING - STT IS WORKING!")
         elif evt.new_state == "listening":
             logger.info("[DIAG-PIPELINE] 🛑 USER STOPPED SPEAKING")
+            _pipeline_t0["user_finished_speaking"] = time.perf_counter()
 
     @session.on("agent_state_changed")
     def on_agent_state(evt):
@@ -437,6 +453,11 @@ async def my_agent(ctx: JobContext):
             logger.info("[DIAG-PIPELINE] 2. LLM request started (agent state -> thinking)")
         elif state == "speaking":
             logger.info("[DIAG-PIPELINE] 7. TTS playback started (agent state -> speaking)")
+            t_finished = _pipeline_t0.get("user_finished_speaking")
+            if t_finished and "first_agent_response_latency_ms" not in session.userdata:
+                latency = int((time.perf_counter() - t_finished) * 1000)
+                session.userdata["first_agent_response_latency_ms"] = latency
+                logger.info(f"[ANALYTICS] First response latency: {latency} ms")
 
     @session.on("error")
     def on_error(err: Exception):
@@ -520,6 +541,12 @@ async def my_agent(ctx: JobContext):
     
     session.userdata["user_id"] = caller_id
     logger.info("SIP PARTICIPANT JOINED")
+    
+    # Day 8 Analytics Tracking
+    from datetime import datetime, timezone
+    import uuid
+    call_id = f"CALL-{uuid.uuid4().hex[:8].upper()}"
+    started_at = datetime.now(timezone.utc).isoformat()
 
     # Check for outbound call metadata
     is_outbound = False
@@ -566,11 +593,123 @@ async def my_agent(ctx: JobContext):
             pass
 
 
+    # Fix for Day 8 Lifecycle: Wait for actual disconnection instead of blocking forever
+    call_ended = asyncio.Event()
+    
+    @ctx.room.on("participant_disconnected")
+    def on_participant_disconnected(p: rtc.RemoteParticipant):
+        if p.identity == caller_id:
+            logger.info("Caller disconnected, ending job cleanly.")
+            call_ended.set()
+
+    @ctx.room.on("disconnected")
+    def on_disconnected():
+        logger.info("Room disconnected, ending job cleanly.")
+        call_ended.set()
+
     logger.info("KEEPING JOB ALIVE")
-    await asyncio.Event().wait()
-    logger.info("SESSION ENDED")
+    try:
+        await call_ended.wait()
+    finally:
+        # Day 8 Analytics: Record exactly one row when the call ends
+        if not session.userdata.get("analytics_finalized"):
+            session.userdata["analytics_finalized"] = True
+            
+            from database import log_analytics
+            from datetime import datetime, timezone
+            
+            ended_at_dt = datetime.now(timezone.utc)
+            ended_at = ended_at_dt.isoformat()
+            started_at_dt = datetime.fromisoformat(started_at)
+            duration = int((ended_at_dt - started_at_dt).total_seconds())
+            
+            channel = "outbound" if is_outbound else "browser"
+            outcome = "FAILED"
+            success_reason = "Abrupt disconnect or unresolved"
+            
+            if "call_success" in session.userdata:
+                outcome = "SUCCESS" if session.userdata["call_success"] else "FAILED"
+                success_reason = session.userdata.get("outcome_reason", "")
+                
+            task_type = session.userdata.get("task_type", "General Query")
+            latency = session.userdata.get("first_agent_response_latency_ms")
+            
+            # Extract language safely if known, else default to English
+            # Since language is implicitly handled by the LLM in Prompt.py, we just record Unknown unless explicitly detected.
+            language = session.userdata.get("language", "Unknown")
+            
+            log_analytics(call_id, caller_id, started_at, ended_at, channel, outcome, duration, language, success_reason, task_type, latency)
+            logger.info(f"SESSION ENDED (Outcome: {outcome})")
 
 
+# Day 8 Analytics API (Runs in background, zero dependencies)
+import threading
+import json
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from database import _get_connection
+
+class AnalyticsHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        total = 0; success = 0; failed = 0
+        history = []
+        task_stats = {}
+        try:
+            with _get_connection() as conn:
+                if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='call_analytics'").fetchone():
+                    total = conn.execute("SELECT COUNT(*) FROM call_analytics").fetchone()[0]
+                    success = conn.execute("SELECT COUNT(*) FROM call_analytics WHERE outcome = 'SUCCESS'").fetchone()[0]
+                    failed = conn.execute("SELECT COUNT(*) FROM call_analytics WHERE outcome = 'FAILED'").fetchone()[0]
+                    
+                    # Fetch recent history
+                    rows = conn.execute("SELECT started_at, duration_seconds, channel, language, task_type, outcome, success_reason FROM call_analytics ORDER BY id DESC LIMIT 20").fetchall()
+                    for r in rows:
+                        history.append({
+                            "started_at": r[0],
+                            "duration_seconds": r[1],
+                            "channel": r[2],
+                            "language": r[3],
+                            "task_type": r[4],
+                            "outcome": r[5],
+                            "success_reason": r[6]
+                        })
+                        
+                    # Fetch task stats
+                    task_rows = conn.execute("SELECT task_type, COUNT(*) FROM call_analytics GROUP BY task_type").fetchall()
+                    for r in task_rows:
+                        task_stats[r[0] or "Unknown"] = r[1]
+                        
+        except Exception as e:
+            logger.error(f"Error querying analytics DB for API: {e}")
+            
+        rate = round((success / total * 100), 1) if total > 0 else 0
+        data = {
+            "total_calls": total, 
+            "successful_calls": success, 
+            "failed_calls": failed,
+            "success_rate": rate,
+            "history": history,
+            "task_stats": task_stats
+        }
+        self.wfile.write(json.dumps(data).encode())
+        
+    def log_message(self, format, *args):
+        pass # Suppress logs to keep terminal clean
+
+def _start_analytics_server():
+    try:
+        # Try port 8080
+        server = HTTPServer(('127.0.0.1', 8080), AnalyticsHandler)
+        logger.info("Day 8 Analytics API running on http://127.0.0.1:8080")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"Failed to start Analytics API: {e}")
+
+threading.Thread(target=_start_analytics_server, daemon=True).start()
 
 if __name__ == "__main__":
     cli.run_app(server)

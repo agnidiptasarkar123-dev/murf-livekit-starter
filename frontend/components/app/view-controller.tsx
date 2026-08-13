@@ -12,7 +12,7 @@ const MotionSessionView = motion.create(ArthashathiSessionView);
 const VIEW_MOTION_PROPS = {
   variants: {
     visible: { opacity: 1 },
-    hidden:  { opacity: 0 },
+    hidden: { opacity: 0 },
   },
   initial: 'hidden',
   animate: 'visible',
@@ -39,12 +39,7 @@ export function ViewController({ appConfig }: ViewControllerProps) {
             onStartCall={start}
           />
         )}
-        {isConnected && (
-          <MotionSessionView
-            key="session-view"
-            {...VIEW_MOTION_PROPS}
-          />
-        )}
+        {isConnected && <MotionSessionView key="session-view" {...VIEW_MOTION_PROPS} />}
       </AnimatePresence>
     </div>
   );

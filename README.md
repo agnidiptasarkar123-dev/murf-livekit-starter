@@ -123,6 +123,20 @@ Added the ability for Arthashathi to initiate outbound SIP calls (e.g., scheme d
 - Updated the agent prompt to enforce a mandatory, compliant outbound opening (stating who is calling, why, and providing an opt-out).
 - Implemented an `opt_out_of_calls` LLM tool and a `do_not_call` database flag to ensure users who opt out are never called again.
 
+### Day 8 — Call Analytics Dashboard
+Added a real-time call analytics dashboard tracking total calls, successful calls, and failed calls.
+- **Success Definition:** A call is marked SUCCESS only if a meaningful task is actually completed (e.g., successful scheme eligibility check, or a successfully created permitted escalation). Casual conversation alone counts as FAILED.
+- **Privacy:** Only aggregate metrics are tracked in the local SQLite `call_analytics` table. No PII, passwords, or full transcripts are stored.
+- **Dashboard UI:** A lightweight `aiohttp` web dashboard runs on port `8080` (separate from the LiveKit agent) and auto-refreshes every 5 seconds.
+
+**To run the Dashboard:**
+```bash
+cd backend
+source .venv/bin/activate
+python src/dashboard.py
+```
+Then open **http://localhost:8080** in your browser.
+
 ## Memory Architecture
 
 The persistent memory is built on a local SQLite database (`arthasathi_users.db`). It uses a stable `caller_id` (derived from the LiveKit participant identity) to securely match callers.

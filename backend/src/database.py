@@ -45,7 +45,34 @@ def init_db() -> None:
                 )
                 """
             )
-            # Gentle migration in case the table already exists without do_not_call
+            # Create call_analytics table (Day 8)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS call_analytics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    call_id TEXT,
+                    caller_id TEXT,
+                    started_at TEXT,
+                    ended_at TEXT,
+                    channel TEXT,
+                    outcome TEXT,
+                    created_at TEXT
+                )
+                """
+            )
+            # Gentle migration for Day 8 new columns
+            for col, col_type in [
+                ("duration_seconds", "INTEGER"),
+                ("language", "TEXT"),
+                ("success_reason", "TEXT"),
+                ("task_type", "TEXT"),
+                ("first_agent_response_latency_ms", "INTEGER")
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE call_analytics ADD COLUMN {col} {col_type}")
+                except sqlite3.OperationalError:
+                    pass # Column already exists
+                    
             try:
                 conn.execute("ALTER TABLE users ADD COLUMN do_not_call BOOLEAN DEFAULT FALSE")
             except sqlite3.OperationalError:
@@ -130,6 +157,41 @@ def set_do_not_call(user_id: str) -> None:
         logger.info(f"[DB] Marked user_id={user_id} as DO NOT CALL")
     except Exception as e:
         logger.error(f"[DB-ERROR] Error setting do_not_call for user {user_id}: {e}")
+
+def log_analytics(
+    call_id: str,
+    caller_id: str,
+    started_at: str,
+    ended_at: str,
+    channel: str,
+    outcome: str,
+    duration_seconds: int = None,
+    language: str = "Unknown",
+    success_reason: str = None,
+    task_type: str = "Unknown",
+    first_agent_response_latency_ms: int = None
+) -> None:
+    """
+    Day 8: Safely log exactly one call analytics record when a session ends.
+    Failures here MUST NOT crash the calling function.
+    """
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with _get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO call_analytics (
+                    call_id, caller_id, started_at, ended_at, channel, outcome, created_at,
+                    duration_seconds, language, success_reason, task_type, first_agent_response_latency_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (call_id, caller_id, started_at, ended_at, channel, outcome, now_iso,
+                 duration_seconds, language, success_reason, task_type, first_agent_response_latency_ms)
+            )
+            conn.commit()
+        logger.info(f"[ANALYTICS] Recorded {outcome} for call {call_id} (Task: {task_type}, Duration: {duration_seconds}s)")
+    except Exception as e:
+        logger.error(f"[ANALYTICS-ERROR] Failed to log analytics for call {call_id}: {e}")
 
 
 # Initialise the table when the module is imported
