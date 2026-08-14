@@ -27,7 +27,7 @@ logger.setLevel(logging.DEBUG)
 load_dotenv(".env.local")
 
 # System prompt is maintained in prompt.py for cleaner separation
-from prompt import SYSTEM_PROMPT
+from prompt import SYSTEM_PROMPT, SPECIALIST_PROMPT
 from database import get_user, save_user
 
 
@@ -303,7 +303,7 @@ class Assistant(Agent):
     ) -> str:
         """Call this ONLY after (a) identifying the situation genuinely needs human help per the two categories (fraud in progress or decisions needing human authority), AND (b) asking the caller for permission to share their information and getting an explicit yes.
         Never call this for routine questions the agent can already answer.
-        The summary must NEVER include OTPs, PINs, passwords, account numbers, card numbers, Aadhaar/PAN numbers, or other sensitive credentials — only the general nature of the issue.
+        The summary must NEVER include OTPs, PINs, passwords, account numbers, card numbers, Aadhaar/PAN numbers, or other sensitive credentials -- only the general nature of the issue.
         """
         user_id = context.userdata.get("user_id", "unknown")
         logger.info(f"[TOOL-CALLED] create_escalation invoked for user_id={user_id}, urgency={urgency}")
@@ -323,6 +323,310 @@ class Assistant(Agent):
             logger.error(f"[DIAG-TOOL-ERROR] create_escalation failed: {e}", exc_info=True)
             return "An error occurred while escalating. Please advise the user to contact the helpline directly."
 
+    @function_tool
+    async def handoff_to_scheme_specialist(
+        self,
+        context: RunContext,
+        context_summary: str,
+    ) -> str:
+        """Transfer the user to the Government Scheme Specialist agent.
+
+        Call this tool ONLY when the user's request genuinely requires detailed
+        government-scheme assistance, such as:
+          - Checking eligibility for a specific scheme (PM Awas Yojana, PM Ujjwala Yojana, etc.)
+          - Asking about benefits or details of a government scheme
+          - Asking which scheme they should apply for
+          - Any question that requires deep government-scheme expertise
+
+        Do NOT call this for:
+          - General banking questions
+          - UPI/OTP fraud protection advice
+          - General financial guidance
+          - Questions you can answer directly with existing knowledge
+
+        IMPORTANT: Before calling this tool, tell the user you are connecting
+        them to the government scheme specialist (e.g. 'I'll connect you to our
+        government scheme specialist who can help you with that.').
+
+        Args:
+            context_summary: A short plain-English summary of what the user is
+                asking about (e.g. 'User is asking about eligibility for PM
+                Awas Yojana. They are a farmer in UP, age 45.'). This MUST NOT
+                contain any sensitive data: no OTPs, PINs, passwords, account
+                numbers, card numbers, Aadhaar/PAN numbers, or credentials.
+        """
+        logger.info(f"[TOOL-CALLED] handoff_to_scheme_specialist invoked")
+        try:
+            # --- Safety: validate context_summary to block sensitive data ---
+            sensitive_keywords = [
+                "otp", "pin", "cvv", "password", "account number", "card number",
+                "aadhaar", "aadhar", "pan number", "upi pin", "net banking",
+                "login", "credential", "passcode",
+            ]
+            summary_lower = context_summary.lower() if context_summary else ""
+            for kw in sensitive_keywords:
+                if kw in summary_lower:
+                    logger.warning(f"[HANDOFF] context_summary contained sensitive keyword '{kw}' — redacting.")
+                    context_summary = "[Context redacted for safety — contains potentially sensitive data.]"
+                    break
+
+            # Fallback if empty
+            if not context_summary or not context_summary.strip():
+                context_summary = "The user is asking about government scheme information or eligibility."
+
+            # Truncate to a reasonable length
+            if len(context_summary) > 500:
+                context_summary = context_summary[:500] + "..."
+
+            # Build the specialist prompt with injected context
+            specialist_instructions = SPECIALIST_PROMPT.replace("{context}", context_summary)
+
+            specialist = GovernmentSchemeSpecialist(
+                instructions=specialist_instructions,
+            )
+
+            # Change the LLM/Agent brain to the specialist
+            session = context.session
+            session.update_agent(specialist)
+            
+            context.userdata["task_type"] = "Scheme Eligibility"
+            logger.info("[ARTHASATHI] SPECIALIST ACTIVE → TRUE — specialist is now responding")
+
+            # Interrupt any currently playing speech, then have Pooja introduce herself.
+            # update_agent() is synchronous — specialist is already active when say() fires.
+            session.interrupt()
+            session.say(
+                "Hello, my name is Pooja, and I am the Government Scheme Specialist. "
+                "I'll help you with the scheme eligibility and details.",
+                allow_interruptions=False,
+            )
+
+            # Return empty so the main LLM does NOT generate any additional text after the handoff.
+            return ""
+
+        except Exception as e:
+            logger.error(f"[HANDOFF-ERROR] Handoff to specialist failed: {e}", exc_info=True)
+            return (
+                "Handoff failed. Tell the user: 'I'm unable to connect you to the specialist "
+                "right now, but I can still help with the information I have.' Then continue "
+                "helping the user directly using existing scheme knowledge."
+            )
+
+
+# =============================================================
+# Day 9: Government Scheme Specialist Agent
+# =============================================================
+# A genuinely separate Agent subclass. Uses the same TTS voice
+# as the main agent but has a distinct persona ('Pooja').
+# Reuses existing check_scheme_eligibility logic
+# (same schemes_data.SCHEMES dataset) and existing create_escalation
+# (same Day 7 escalation system). Does NOT duplicate databases,
+# scheme datasets, or Discord webhook calls.
+# =============================================================
+
+class GovernmentSchemeSpecialist(Agent):
+    """Government Scheme Specialist agent for Arthasathi (Day 9).
+
+    Handles only government-scheme related questions. Uses the existing
+    Day 5 scheme eligibility data and Day 7 escalation system without
+    duplication. The specialist's TTS voice is identical to the main
+    agent's voice.
+    """
+
+    def __init__(self, instructions: str) -> None:
+        super().__init__(instructions=instructions)
+
+    @function_tool
+    async def check_scheme_eligibility(
+        self,
+        context: RunContext,
+        scheme_name: str,
+        annual_income: Optional[int] = None,
+        owns_pucca_house: Optional[bool] = None,
+        age: Optional[int] = None,
+        is_farmer: Optional[bool] = None,
+        has_bank_account: Optional[bool] = None,
+        is_bpl_or_poor: Optional[bool] = None,
+        has_existing_lpg_connection: Optional[bool] = None,
+        applicant_is_female: Optional[bool] = None,
+        is_indian_citizen: Optional[bool] = None
+    ) -> str:
+        """Check government scheme eligibility using the existing Day 5 scheme dataset.
+        Call after collecting the required details from the user.
+        Do NOT call with guessed or missing critical values.
+
+        Args:
+            scheme_name: Internal name of the scheme (e.g. 'pm_awas_yojana')
+            annual_income: The user's annual household income in INR.
+            owns_pucca_house: Whether the user owns a permanent (pucca) house.
+            age: The user's age in years.
+            is_farmer: Whether the user is a farmer.
+            has_bank_account: Whether the user has a bank account.
+            is_bpl_or_poor: Whether the user belongs to BPL category.
+            has_existing_lpg_connection: Whether the user already has an LPG connection.
+            applicant_is_female: Whether the primary applicant is female.
+            is_indian_citizen: Whether the user is an Indian citizen.
+        """
+        logger.info(f"[SPECIALIST-TOOL] check_scheme_eligibility called for scheme={scheme_name}")
+        context.userdata["task_type"] = "Scheme Eligibility"
+        # Delegate entirely to the existing Day 5 eligibility logic
+        try:
+            from schemes_data import SCHEMES
+
+            norm_name = scheme_name.lower().replace(" ", "_")
+            if norm_name not in SCHEMES:
+                found = None
+                for key in SCHEMES.keys():
+                    if key in norm_name or norm_name in key:
+                        found = key
+                        break
+                if found:
+                    scheme_key = found
+                else:
+                    return f"I don't have enough information to check eligibility for '{scheme_name}'. Ask the user to clarify the scheme name."
+            else:
+                scheme_key = norm_name
+
+            scheme = SCHEMES[scheme_key]
+            criteria = scheme.get("criteria", {})
+
+            missing_fields = []
+            eligibility_status = "eligible"
+            reasons = []
+
+            if "max_annual_income" in criteria:
+                if annual_income is None:
+                    missing_fields.append("annual household income")
+                elif annual_income > criteria["max_annual_income"]:
+                    eligibility_status = "not eligible"
+                    reasons.append(f"annual income ({annual_income}) exceeds the limit of {criteria['max_annual_income']}")
+
+            if "must_not_own_pucca_house" in criteria:
+                if owns_pucca_house is None:
+                    missing_fields.append("whether they own a pucca (permanent) house")
+                elif owns_pucca_house:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant already owns a pucca house")
+
+            if "min_age" in criteria:
+                if age is None:
+                    missing_fields.append("age")
+                elif age < criteria["min_age"]:
+                    eligibility_status = "not eligible"
+                    reasons.append(f"age ({age}) is below the minimum required age of {criteria['min_age']}")
+
+            if "max_age" in criteria:
+                if age is None and "age" not in missing_fields:
+                    missing_fields.append("age")
+                elif age is not None and age > criteria["max_age"]:
+                    eligibility_status = "not eligible"
+                    reasons.append(f"age ({age}) is above the maximum allowed age of {criteria['max_age']}")
+
+            if "is_farmer" in criteria:
+                if is_farmer is None:
+                    missing_fields.append("whether they are a farmer")
+                elif not is_farmer:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant is not a farmer")
+
+            if "is_bpl_or_poor" in criteria:
+                if is_bpl_or_poor is None:
+                    missing_fields.append("whether they belong to the BPL category")
+                elif not is_bpl_or_poor:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant does not belong to the BPL category")
+
+            if "has_existing_lpg_connection" in criteria:
+                if has_existing_lpg_connection is None:
+                    missing_fields.append("whether they already have an LPG connection")
+                elif has_existing_lpg_connection:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant already has an LPG connection")
+
+            if "applicant_is_female" in criteria:
+                if applicant_is_female is None:
+                    missing_fields.append("whether the applicant is female")
+                elif not applicant_is_female:
+                    eligibility_status = "not eligible"
+                    reasons.append("the scheme is specifically for women")
+
+            if "has_bank_account" in criteria:
+                if has_bank_account is None:
+                    missing_fields.append("whether they have a bank account")
+                elif not has_bank_account:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant does not have a bank account")
+
+            if "is_indian_citizen" in criteria:
+                if is_indian_citizen is None:
+                    missing_fields.append("whether they are an Indian citizen")
+                elif not is_indian_citizen:
+                    eligibility_status = "not eligible"
+                    reasons.append("applicant is not an Indian citizen")
+
+            if missing_fields:
+                fields_str = ", ".join(missing_fields)
+                return f"I need more information to check eligibility for {scheme['name']}. Please ask the user for their: {fields_str}."
+
+            if eligibility_status == "eligible":
+                return f"Based on the provided details, the user appears ELIGIBLE for {scheme['name']}. (Note: Data as of {scheme.get('data_as_of')})."
+            else:
+                reasons_str = "; ".join(reasons)
+                return f"Based on the provided details, the user is NOT ELIGIBLE for {scheme['name']} because: {reasons_str}. (Note: Data as of {scheme.get('data_as_of')})."
+
+        except Exception as e:
+            logger.error(f"[SPECIALIST-TOOL-ERROR] check_scheme_eligibility failed: {e}", exc_info=True)
+            return "An error occurred while checking eligibility. Please ask the user for their relevant details again or advise them to verify eligibility at their bank or official portal."
+
+    @function_tool
+    async def create_escalation(
+        self,
+        reason: str,
+        summary: str,
+        urgency: str,
+        caller_language: str,
+        preferred_followup: str,
+        context: RunContext
+    ) -> str:
+        """Escalate to a human agent using the existing Day 7 escalation system.
+        Call this ONLY after (a) the situation genuinely needs human help
+        (fraud in progress or decisions needing human authority), AND (b)
+        asking the caller for explicit permission to share their information.
+        The summary must NEVER include OTPs, PINs, passwords, account numbers,
+        card numbers, Aadhaar/PAN numbers, or other sensitive credentials.
+        """
+        user_id = context.userdata.get("user_id", "unknown")
+        logger.info(f"[SPECIALIST-TOOL] create_escalation invoked for user_id={user_id}, urgency={urgency}")
+        context.userdata["task_type"] = "Human Escalation"
+        try:
+            # Reuse the existing Day 7 escalation system — no duplication
+            from escalation import send_escalation
+            ref_id = await send_escalation(
+                reason=reason,
+                summary=summary,
+                urgency=urgency,
+                caller_language=caller_language,
+                preferred_followup=preferred_followup,
+                caller_id=user_id
+            )
+            return f"Your request has been logged with reference {ref_id}. A team member will review it, though I can't guarantee an immediate response."
+        except Exception as e:
+            logger.error(f"[SPECIALIST-TOOL-ERROR] create_escalation failed: {e}", exc_info=True)
+            return "An error occurred while escalating. Please advise the user to contact the helpline directly."
+
+    @function_tool
+    async def mark_call_completed(self, context: RunContext, reason: str, successful: bool) -> str:
+        """Call this when the user's scheme question has been fully resolved.
+        Args:
+            reason: A short summary of why the call was marked completed.
+            successful: True if the user's request was successfully resolved.
+        """
+        logger.info(f"[SPECIALIST-TOOL] mark_call_completed: {reason} (Success={successful})")
+        context.userdata["call_success"] = successful
+        context.userdata["outcome_reason"] = reason
+        return "Call marked as completed. You may now give a natural closing response."
+
+
 server = AgentServer()
 
 
@@ -330,10 +634,10 @@ def prewarm(proc: JobProcess):
     # Load VAD with aggressive silence detection (0.3s) for fast end-of-speech detection
     # This is synchronous by design — it runs in a subprocess before the event loop starts
     proc.userdata["vad"] = silero.VAD.load(
-        min_silence_duration=0.3,
+        min_silence_duration=0.5, # Increased from 0.15s to 0.5s to allow natural breathing/pauses
         activation_threshold=0.45,
     )
-    logger.info("VAD model prewarmed successfully (min_silence_duration=0.3s)")
+    logger.info("VAD model prewarmed successfully (min_silence_duration=0.5s)")
 
 
 server.setup_fnc = prewarm
@@ -357,7 +661,7 @@ async def my_agent(ctx: JobContext):
             language="multi",
             interim_results=True,
             no_delay=True,
-            endpointing_ms=300,  # Lowered from 800ms for much faster response latency
+            endpointing_ms=500,  # Increased from 150ms to 500ms to prevent premature STT cutoff
             smart_format=False,
             punctuate=False,
         ),
@@ -369,18 +673,17 @@ async def my_agent(ctx: JobContext):
         tts=murf.TTS(
             voice="Anisha",
             style="Conversation",
-            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=5),
-            # Removed text_pacing=False to ensure end_of_stream emits properly and pipeline unlocks
+            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=15), # Increased from 2 to 15 to prevent chunking
         ),
 
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=False,
-        # Reduced endpointing delays for faster response initiation
-        min_endpointing_delay=0.4,
-        max_endpointing_delay=1.0,
+        # Balanced endpointing delays for reliable response initiation
+        min_endpointing_delay=0.6,
+        max_endpointing_delay=1.2,
         # Interruption settings
-        min_interruption_duration=0.4, # Lowered from 0.7s so "Wait" interrupts easily
+        min_interruption_duration=0.8, # Increased to 0.8s to avoid interrupting on short breaths/noises
         # pyrefly: ignore [parse-error]
         )
 
